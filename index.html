@@ -210,10 +210,10 @@
    CONFIG: every tunable lives in `cfg` and the WEAPONS stat fns.
    ================================================================ */
 const cfg = {
-  world:{ screens:3.5, asteroidShard:4, asteroidCrate:0.05 },   // map = screens x viewport; mining payout
+  world:{ screens:3.5, fovDiag:1500, asteroidShard:4, asteroidCrate:0.05 },   // map = screens x view; fovDiag = visible diagonal (world units) — identical on every device
   player:{
     radius:13, speed:236, accel:13,
-    maxHP:100, regen:0, iframes:0.6, magnet:100,
+    maxHP:100, regen:0, iframes:0.6, magnet:750,
     critChance:0, critMult:2,
     mDamage:1, mCooldown:1, mArea:1, mAmount:0, mProjSpeed:1,    // global weapon modifiers
     shieldMax:3.0, shieldDrain:1.0, shieldRecharge:0.55, shieldDelay:0.8, shieldShove:235,
@@ -389,13 +389,14 @@ function metaGemLife(){ return cfg.gemLife+(meta.tiers.treasure||0)*5; }
 
 /* ---------------- engine ---------------- */
 const canvas=document.getElementById("game"), ctx=canvas.getContext("2d");
-let W=0,H=0,DPR=1,worldW=0,worldH=0;
+let W=0,H=0,DPR=1,worldW=0,worldH=0,Z=1,viewW=1,viewH=1;
 const cam={x:0,y:0};
 function resize(){
   DPR=Math.min(window.devicePixelRatio||1,2);
   W=canvas.clientWidth||window.innerWidth; H=canvas.clientHeight||window.innerHeight;
   canvas.width=Math.max(1,Math.round(W*DPR)); canvas.height=Math.max(1,Math.round(H*DPR)); ctx.setTransform(DPR,0,0,DPR,0,0);
-  worldW=W*cfg.world.screens; worldH=H*cfg.world.screens;
+  Z=Math.hypot(W,H)/cfg.world.fovDiag; viewW=W/Z; viewH=H/Z;   // constant world-space field of view across devices
+  worldW=viewW*cfg.world.screens; worldH=viewH*cfg.world.screens;
   makeBackground();
   if(P){ P.x=clamp(P.x,P.radius,worldW-P.radius); P.y=clamp(P.y,P.radius,worldH-P.radius); updateCamera();
     for(const a of asteroids){a.x=clamp(a.x,60,worldW-60);a.y=clamp(a.y,60,worldH-60);} }
@@ -564,7 +565,7 @@ function startRun(){
 function gameOver(){ state="over"; if(level>best){best=level;saveBest(best);}
   $("ovLevel").textContent=level; $("ovKills").textContent=kills; $("ovTime").textContent=fmtTime(totalTime); $("ovTokens").textContent="+"+(meta.tokens-runStartTokens);
   refreshBest(); $("hud").classList.add("hide"); shieldBtn.classList.add("hide"); $("pauseBtn").classList.add("hide"); $("abilityBtn").classList.add("hide"); show("overScreen"); }
-function updateCamera(){ cam.x=clamp(P.x-W/2,0,Math.max(0,worldW-W)); cam.y=clamp(P.y-H/2,0,Math.max(0,worldH-H)); }
+function updateCamera(){ cam.x=clamp(P.x-viewW/2,0,Math.max(0,worldW-viewW)); cam.y=clamp(P.y-viewH/2,0,Math.max(0,worldH-viewH)); }
 
 /* ---------------- asteroids ---------------- */
 function asteroidTarget(){ return clamp(Math.round(worldW*worldH/(620*620)),8,26); }
@@ -587,10 +588,10 @@ function breakAsteroid(a){ if(a.dead)return; a.dead=true; burst(a.x,a.y,"#b9a98f
 
 /* ---------------- spawning ---------------- */
 function spawnEdge(){ const m=60,s=randi(0,3); let x,y;
-  if(s===0){x=rand(cam.x-m,cam.x+W+m);y=cam.y-m;}
-  else if(s===1){x=cam.x+W+m;y=rand(cam.y-m,cam.y+H+m);}
-  else if(s===2){x=rand(cam.x-m,cam.x+W+m);y=cam.y+H+m;}
-  else{x=cam.x-m;y=rand(cam.y-m,cam.y+H+m);}
+  if(s===0){x=rand(cam.x-m,cam.x+viewW+m);y=cam.y-m;}
+  else if(s===1){x=cam.x+viewW+m;y=rand(cam.y-m,cam.y+viewH+m);}
+  else if(s===2){x=rand(cam.x-m,cam.x+viewW+m);y=cam.y+viewH+m;}
+  else{x=cam.x-m;y=rand(cam.y-m,cam.y+viewH+m);}
   return {x:clamp(x,-m,worldW+m),y:clamp(y,-m,worldH+m)}; }
 function makeEnemy(type,pos){ const hpMul=(1+(level-1)*cfg.spawn.hpPerLevel)*(1+levelTime/100*0.3)*(1+(intensity-1)*0.5)*D.hp;
   return {id:uid++,type,x:pos.x,y:pos.y,hp:type.hp*hpMul,maxHp:type.hp*hpMul,r:type.r,flash:0,dead:false,fireCd:rand(0.3,type.fireEvery||1)}; }
@@ -615,8 +616,10 @@ function spawnBoss(){ const baseHp=(cfg.boss.hpBase+(level-1)*cfg.boss.hpPerLeve
 function initBossState(e){ e.atkCd=rand(0.8,1.6); e.spin=0; e.sweepAng=rand(0,TAU);
   if(e.type.kind==="lance"){ e.lancePhase="idle"; e.lanceT=1.0; e.lanceAng=0; }
   if(e.type.kind==="reflect"){ e.shieldAng=Math.atan2(P.y-e.y,P.x-e.x); e.shieldCd=e.type.aimEvery; }
-  if(e.type.kind==="sentinel"){ for(let s=0;s<e.type.shards;s++){ const sh=makeEnemy(SHARD_TYPE,{x:e.x,y:e.y});
-    sh.hp=e.type.shardHp; sh.maxHp=e.type.shardHp; sh.parent=e.id; sh.orbAng=s/e.type.shards*TAU; sh.orbR=e.type.shardR; sh.orbSpin=e.type.shardSpin; enemies.push(sh); } } }
+  if(e.type.kind==="sentinel"){ const ns=e.type.shards+Math.floor((level-1)/5); for(let s=0;s<ns;s++){ const sh=makeEnemy(SHARD_TYPE,{x:e.x,y:e.y});
+    sh.hp=e.type.shardHp; sh.maxHp=e.type.shardHp; sh.parent=e.id; sh.orbAng=s/ns*TAU; sh.orbR=e.type.shardR; sh.orbSpin=e.type.shardSpin; enemies.push(sh); } } }
+function rocket(x,y,ang,dmg){ const sp=155; return {x,y,vx:Math.cos(ang)*sp,vy:Math.sin(ang)*sp,r:6,dmg:dmg*D.dmg,life:5,homing:true,turn:2.0}; }
+function carrierDrone(lv){ return lv>=12?(ETYPES.orbiter||ETYPES.shooter):(lv>=6?ETYPES.shooter:ETYPES.swarmer); }
 function updateLance(e,dt,dxp,dyp){ const T=e.type;
   if(e.lancePhase==="idle"){ e.lanceT-=dt; if(e.lanceT<=0){ e.lancePhase="warn"; e.lanceT=T.warn; } }
   else if(e.lancePhase==="warn"){ const want=Math.atan2(dyp,dxp), rate=T.turn*(1+(level-1)*0.06)*D.boss;
@@ -635,7 +638,7 @@ function explodeHazard(z){ addEffect({type:"ring",x:z.x,y:z.y,maxR:z.radius,life
   burst(z.x,z.y,"#b06bff",14,3.5); shakeIt(5); hurtPlayer(z.dmg); }
 
 /* ---------------- targeting + damage ---------------- */
-const onScreen=o=>o.x>=cam.x&&o.x<=cam.x+W&&o.y>=cam.y&&o.y<=cam.y+H;
+const onScreen=o=>o.x>=cam.x&&o.x<=cam.x+viewW&&o.y>=cam.y&&o.y<=cam.y+viewH;
 function aimTargets(x,y,n,range){ const r2=range*range, a=[];
   for(const e of enemies){ if(e.dead)continue; const d=(e.x-x)**2+(e.y-y)**2; if(d<=r2&&onScreen(e))a.push({o:e,d}); }
   if(!a.length){ for(const o of asteroids){ if(o.dead)continue; const d=(o.x-x)**2+(o.y-y)**2; if(d<=r2&&onScreen(o))a.push({o,d}); } }
@@ -771,7 +774,7 @@ function update(dt){
   else if(tilt.on&&tilt.have){ let gx=tilt.gamma-tilt.g0, gy=tilt.beta-tilt.b0;
     if(Math.abs(gx)<tilt.dead)gx=0; if(Math.abs(gy)<tilt.dead)gy=0;
     dvx=clamp(gx/tilt.range,-1,1)*P.speed; dvy=clamp(-gy/tilt.range,-1,1)*P.speed; }
-  else if(pointer.active){const psx=P.x-cam.x,psy=P.y-cam.y,dx=pointer.x-psx,dy=pointer.y-psy,d=Math.hypot(dx,dy);
+  else if(pointer.active){const psx=(P.x-cam.x)*Z,psy=(P.y-cam.y)*Z,dx=pointer.x-psx,dy=pointer.y-psy,d=Math.hypot(dx,dy);
     if(d>5){dvx=dx/d*P.speed;dvy=dy/d*P.speed;}}
   const t=Math.min(1,P.accel*dt); P.vx+=(dvx-P.vx)*t; P.vy+=(dvy-P.vy)*t;
   P.x=clamp(P.x+P.vx*dt,P.radius,worldW-P.radius); P.y=clamp(P.y+P.vy*dt,P.radius,worldH-P.radius);
@@ -843,28 +846,30 @@ function update(dt){
       else{ e.x+=dx/dist*70*dt; e.y+=dy/dist*70*dt; }
       const ox=P.x-e.x,oy=P.y-e.y; if(ox*ox+oy*oy<(e.r+P.radius)**2)hurtPlayer(T.dmg*D.dmg); continue; }
     if(T.boss){ e.x+=dx/dist*T.speed*dt; e.y+=dy/dist*T.speed*dt; e.atkCd-=dt;
-      if(T.kind==="warship"){ if(e.atkCd<=0){ for(let k=0;k<T.burst;k++){const a=k/T.burst*TAU+levelTime*1.1;
-          ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery; } }
+      const bx=Math.floor((level-1)/3), bf=Math.max(0.5,1-(level-1)*0.022), rk=level>=8;
+      if(T.kind==="warship"){ if(e.atkCd<=0){ const n=T.burst+bx; for(let k=0;k<n;k++){const a=k/n*TAU+levelTime*1.1;
+          ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery*bf; } }
       else if(T.kind==="lance"){ updateLance(e,dt,dx,dy); }
-      else if(T.kind==="layer"){ if(e.atkCd<=0){ hazards.push({x:e.x+rand(-26,26),y:e.y+rand(-26,26),r:11,arm:0.7,radius:T.mineR,dmg:T.mineDmg*D.dmg,life:T.mineLife}); e.atkCd=T.fireEvery; } }
-      else if(T.kind==="bombard"){ if(e.atkCd<=0){ launchBomb(e,T); e.atkCd=T.fireEvery; } }
-      else if(T.kind==="carrier"){ if(e.atkCd<=0){ for(let q=0;q<T.droneCount;q++)enemies.push(makeEnemy(ETYPES[T.drone],{x:e.x+rand(-44,44),y:e.y+rand(-44,44)})); e.atkCd=T.fireEvery; } }
-      else if(T.kind==="spinner"){ e.spin+=T.spinRate*dt; if(e.atkCd<=0){ for(let k=0;k<T.arms;k++){ const a=e.spin+k/T.arms*TAU;
-        ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4.5}); } e.atkCd=T.fireEvery; } }
-      else if(T.kind==="sweeper"){ e.sweepAng+=T.sweep*dt; const ca=Math.cos(e.sweepAng),sa=Math.sin(e.sweepAng),rx=P.x-e.x,ry=P.y-e.y,proj=rx*ca+ry*sa;
+      else if(T.kind==="layer"){ if(e.atkCd<=0){ const drops=1+Math.floor(bx/2); for(let q=0;q<drops;q++)hazards.push({x:e.x+rand(-30,30),y:e.y+rand(-30,30),r:11,arm:0.7,radius:T.mineR,dmg:T.mineDmg*D.dmg,life:T.mineLife}); e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="bombard"){ if(e.atkCd<=0){ const n=1+Math.floor(bx/3); for(let q=0;q<n;q++)launchBomb(e,T); e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="carrier"){ if(e.atkCd<=0){ const n=T.droneCount+bx, dd=carrierDrone(level); for(let q=0;q<n;q++)enemies.push(makeEnemy(dd,{x:e.x+rand(-44,44),y:e.y+rand(-44,44)})); if(rk)for(let q=0;q<2;q++){const a=Math.atan2(dy,dx)+rand(-0.35,0.35); ebullets.push(rocket(e.x,e.y,a,12));} e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="spinner"){ e.spin+=T.spinRate*dt; if(e.atkCd<=0){ const arms=T.arms+Math.floor(bx/3); for(let k=0;k<arms;k++){ const a=e.spin+k/arms*TAU;
+        ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4.5}); } e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="sweeper"){ e.sweepAng+=T.sweep*(1+(level-1)*0.03)*dt; const ca=Math.cos(e.sweepAng),sa=Math.sin(e.sweepAng),rx=P.x-e.x,ry=P.y-e.y,proj=rx*ca+ry*sa;
         if(proj>0&&proj<T.rayLen&&Math.abs(rx*sa-ry*ca)<T.rayW+P.radius) hurtPlayer(T.rayDmg*D.dmg); }
-      else if(T.kind==="gravity"){ const f=T.pull*dt; P.x=clamp(P.x+(e.x-P.x)/dist*f,P.radius,worldW-P.radius); P.y=clamp(P.y+(e.y-P.y)/dist*f,P.radius,worldH-P.radius);
-        if(e.atkCd<=0){ for(let k=0;k<T.burst;k++){const a=k/T.burst*TAU+levelTime; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4.5});} e.atkCd=T.fireEvery; } }
-      else if(T.kind==="splitter"){ if(e.atkCd<=0){ for(let k=0;k<T.burst;k++){const a=k/T.burst*TAU+levelTime*0.8; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery; } }
-      else if(T.kind==="sniper"){ if(e.atkCd<=0){ const px=P.x+P.vx*T.lead,py=P.y+P.vy*T.lead,base=Math.atan2(py-e.y,px-e.x);
-        for(let s=0;s<T.shots;s++){ const a=base+(s-(T.shots-1)/2)*T.spread; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:4,dmg:T.bDmg*D.dmg,life:3}); } e.atkCd=T.fireEvery; } }
+      else if(T.kind==="gravity"){ const f=T.pull*(1+(level-1)*0.03)*dt; P.x=clamp(P.x+(e.x-P.x)/dist*f,P.radius,worldW-P.radius); P.y=clamp(P.y+(e.y-P.y)/dist*f,P.radius,worldH-P.radius);
+        if(e.atkCd<=0){ const n=T.burst+bx; for(let k=0;k<n;k++){const a=k/n*TAU+levelTime; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4.5});} e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="splitter"){ if(e.atkCd<=0){ const n=T.burst+bx; for(let k=0;k<n;k++){const a=k/n*TAU+levelTime*0.8; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="sniper"){ if(e.atkCd<=0){ const px=P.x+P.vx*T.lead,py=P.y+P.vy*T.lead,base=Math.atan2(py-e.y,px-e.x),shots=T.shots+Math.floor(bx/2);
+        for(let s=0;s<shots;s++){ const a=base+(s-(shots-1)/2)*T.spread; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:4,dmg:T.bDmg*D.dmg,life:3}); } e.atkCd=T.fireEvery*bf; } }
       else if(T.kind==="blink"){ if(e.atkCd<=0){ addEffect({type:"ring",x:e.x,y:e.y,maxR:54,life:0.3,max:0.3,color:T.color}); const ang0=rand(0,TAU);
         e.x=clamp(P.x+Math.cos(ang0)*T.blinkDist,60,worldW-60); e.y=clamp(P.y+Math.sin(ang0)*T.blinkDist,60,worldH-60);
         addEffect({type:"ring",x:e.x,y:e.y,maxR:54,life:0.3,max:0.3,color:T.color});
-        for(let k=0;k<T.burst;k++){const a=k/T.burst*TAU; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery; } }
-      else if(T.kind==="pulsar"){ if(e.atkCd<=0){ hazards.push({kind:"ring",x:e.x,y:e.y,rad:34,max:T.ringMax,grow:T.ringSpeed,w:T.ringW,dmg:T.ringDmg*D.dmg,gapA:rand(0,TAU),gapW:T.gapW,life:T.ringMax/T.ringSpeed+0.4}); e.atkCd=T.fireEvery; } }
-      else if(T.kind==="sentinel"){ if(e.atkCd<=0){ for(let k=0;k<T.burst;k++){const a=k/T.burst*TAU+levelTime*0.6; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery; } }
-      else if(T.kind==="reflect"){ e.shieldCd=(e.shieldCd||0)-dt; if(e.shieldCd<=0){ e.shieldAng=Math.atan2(dy,dx); e.shieldCd=T.aimEvery; addEffect({type:"ring",x:e.x,y:e.y,maxR:e.r+24,life:0.3,max:0.3,color:T.color}); } } }
+        const n=T.burst+bx; for(let k=0;k<n;k++){const a=k/n*TAU; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} if(rk)ebullets.push(rocket(e.x,e.y,Math.atan2(dy,dx),14)); e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="pulsar"){ if(e.atkCd<=0){ hazards.push({kind:"ring",x:e.x,y:e.y,rad:34,max:T.ringMax,grow:T.ringSpeed,w:T.ringW,dmg:T.ringDmg*D.dmg,gapA:rand(0,TAU),gapW:Math.max(0.45,T.gapW-(level-1)*0.02),life:T.ringMax/T.ringSpeed+0.4}); e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="sentinel"){ if(e.atkCd<=0){ const n=T.burst+bx; for(let k=0;k<n;k++){const a=k/n*TAU+levelTime*0.6; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*T.bSpeed,vy:Math.sin(a)*T.bSpeed,r:5,dmg:T.bDmg*D.dmg,life:4});} e.atkCd=T.fireEvery*bf; } }
+      else if(T.kind==="reflect"){ e.shieldCd=(e.shieldCd||0)-dt; if(e.shieldCd<=0){ e.shieldAng=Math.atan2(dy,dx); e.shieldCd=T.aimEvery; addEffect({type:"ring",x:e.x,y:e.y,maxR:e.r+24,life:0.3,max:0.3,color:T.color}); }
+        if(e.atkCd<=0){ const n=8+bx; for(let k=0;k<n;k++){const a=k/n*TAU+levelTime*0.5; ebullets.push({x:e.x,y:e.y,vx:Math.cos(a)*150,vy:Math.sin(a)*150,r:5,dmg:14*D.dmg,life:4.5}); } if(rk)ebullets.push(rocket(e.x,e.y,Math.atan2(dy,dx),16)); e.atkCd=2.8*bf; } } }
     else if(T.ranged){ if(dist>T.range){e.x+=dx/dist*T.speed*dt;e.y+=dy/dist*T.speed*dt;}
       else if(dist<T.range*0.7){e.x-=dx/dist*T.speed*dt;e.y-=dy/dist*T.speed*dt;}
       e.fireCd-=dt; if(dist<=T.range&&e.fireCd<=0){ const a=Math.atan2(P.y-e.y,P.x-e.x);
@@ -885,7 +890,9 @@ function update(dt){
 
   /* enemy bullets */
   const bubR=P.radius+30;
-  for(let i=ebullets.length-1;i>=0;i--){ const b=ebullets[i]; b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;
+  for(let i=ebullets.length-1;i>=0;i--){ const b=ebullets[i];
+    if(b.homing){ const want=Math.atan2(P.y-b.y,P.x-b.x),cur=Math.atan2(b.vy,b.vx); let da=want-cur; while(da>Math.PI)da-=TAU; while(da<-Math.PI)da+=TAU; const na=cur+clamp(da,-b.turn*dt,b.turn*dt),sp=Math.hypot(b.vx,b.vy); b.vx=Math.cos(na)*sp; b.vy=Math.sin(na)*sp; }
+    b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;
     if(b.life<=0){ebullets.splice(i,1);continue;}
     let blocked=false; for(const o of asteroids){ if(o.dead)continue; if((b.x-o.x)**2+(b.y-o.y)**2<(b.r+o.r)**2){ damageAsteroid(o,b.dmg,"#cbb"); ebullets.splice(i,1); blocked=true; break; } }
     if(blocked)continue;
@@ -943,7 +950,7 @@ function update(dt){
 }
 
 /* ---------------- background ---------------- */
-function makeStarField(n,maxR){ const a=[]; for(let i=0;i<n;i++)a.push({x:Math.random()*W,y:Math.random()*H,r:rand(.4,maxR),tw:rand(0,TAU),sp:rand(.4,1.3)}); return a; }
+function makeStarField(n,maxR){ const a=[]; for(let i=0;i<n;i++)a.push({x:Math.random()*viewW,y:Math.random()*viewH,r:rand(.4,maxR),tw:rand(0,TAU),sp:rand(.4,1.3)}); return a; }
 function makeBackground(){
   const cols=["#4a2f7a","#27457f","#1f6a64","#5e2a55","#283a72","#3a2f6a","#2a5a6a"];
   const vivid=[["#ff2d75","#3a0d4a"],["#19f0ff","#0d3a5a"],["#1dff9e","#0d4a3a"],["#ffb52e","#5a2a0d"],["#b46bff","#2a0d5a"]];
@@ -951,17 +958,17 @@ function makeBackground(){
   for(let i=0;i<N;i++){ if(Math.random()<0.16){ const v=vivid[randi(0,vivid.length-1)];
       nebulae.push({x:rand(0,worldW),y:rand(0,worldH),r:rand(300,520),color:v[0],color2:v[1],a:rand(0.13,0.20)}); }
     else nebulae.push({x:rand(0,worldW),y:rand(0,worldH),r:rand(360,680),color:cols[randi(0,cols.length-1)],a:rand(0.05,0.10)}); }
-  starFar=makeStarField(Math.floor(W*H/5200),1.3);
-  starNear=makeStarField(Math.floor(W*H/9500),2.2);
+  starFar=makeStarField(Math.floor(viewW*viewH/5200),1.3);
+  starNear=makeStarField(Math.floor(viewW*viewH/9500),2.2);
 }
 function drawNebulae(){ const par=0.45;
   for(const nb of nebulae){ const sx=nb.x-cam.x*par, sy=nb.y-cam.y*par;
-    if(sx<-nb.r||sx>W+nb.r||sy<-nb.r||sy>H+nb.r)continue;
+    if(sx<-nb.r||sx>viewW+nb.r||sy<-nb.r||sy>viewH+nb.r)continue;
     const g=ctx.createRadialGradient(sx,sy,0,sx,sy,nb.r);
     g.addColorStop(0,hexA(nb.color,nb.a)); if(nb.color2)g.addColorStop(0.5,hexA(nb.color2,nb.a*0.55)); g.addColorStop(1,hexA(nb.color,0));
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(sx,sy,nb.r,0,TAU); ctx.fill(); } }
-function drawStars(layer,par,color,tnow){ const ox=((cam.x*par)%W+W)%W, oy=((cam.y*par)%H+H)%H; ctx.fillStyle=color;
-  for(const s of layer){ let sx=s.x-ox; if(sx<0)sx+=W; let sy=s.y-oy; if(sy<0)sy+=H;
+function drawStars(layer,par,color,tnow){ const ox=((cam.x*par)%viewW+viewW)%viewW, oy=((cam.y*par)%viewH+viewH)%viewH; ctx.fillStyle=color;
+  for(const s of layer){ let sx=s.x-ox; if(sx<0)sx+=viewW; let sy=s.y-oy; if(sy<0)sy+=viewH;
     ctx.globalAlpha=0.28+0.5*Math.max(0,Math.sin(tnow*s.sp+s.tw)); ctx.beginPath(); ctx.arc(sx,sy,s.r,0,TAU); ctx.fill(); }
   ctx.globalAlpha=1; }
 
@@ -971,9 +978,10 @@ function poly(x,y,r,sides,rot){ ctx.beginPath();
 function render(){
   ctx.clearRect(0,0,W,H); ctx.save();
   if(shake>0)ctx.translate(rand(-shake,shake),rand(-shake,shake));
+  ctx.scale(Z,Z);
   const tnow=performance.now()/1000;
 
-  // ambient backgrounds (screen-space, parallax)
+  // ambient backgrounds (world-space under zoom, parallax)
   drawNebulae();
   drawStars(starFar,0.3,"#8aa0d8",tnow);
   drawStars(starNear,0.6,"#cfe0ff",tnow);
@@ -1002,7 +1010,7 @@ function render(){
       ctx.shadowBlur=10;ctx.shadowColor="#ffd84d";ctx.fillStyle="#ffe98a";ctx.fillRect(-g.r,-g.r,g.r*2,g.r*2);ctx.restore(); }
     // crates (show the weapon they contain)
     for(const c of crates){ ctx.save();ctx.translate(c.x,c.y);ctx.rotate(Math.sin(tnow*2)*0.18);
-      ctx.shadowBlur=14;ctx.shadowColor="#36e6ff";ctx.fillStyle="rgba(54,230,255,.18)";
+      ctx.shadowBlur=14;ctx.shadowColor="#36e6ff";ctx.fillStyle="rgba(14,26,48,.95)";
       ctx.strokeStyle="#aef3ff";ctx.lineWidth=2;ctx.fillRect(-c.r,-c.r,c.r*2,c.r*2);ctx.strokeRect(-c.r,-c.r,c.r*2,c.r*2);
       ctx.shadowBlur=0;ctx.font='18px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",system-ui';ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(WEAPONS[c.weaponId].icon,0,1);ctx.restore(); }
     // power-ups (ability orbs)
@@ -1072,7 +1080,9 @@ function render(){
     ctx.globalAlpha=1;ctx.shadowBlur=0;
     // enemy bullets
     ctx.shadowBlur=8;ctx.shadowColor="#ff3b5c";ctx.fillStyle="#ff7a9a";
-    for(const b of ebullets){ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,TAU);ctx.fill();}
+    for(const b of ebullets){ if(b.homing){ ctx.save();ctx.translate(b.x,b.y);ctx.rotate(Math.atan2(b.vy,b.vx));ctx.shadowColor="#ff8a3d";ctx.shadowBlur=12;ctx.fillStyle="#ffce6b";
+        ctx.beginPath();ctx.moveTo(b.r*1.7,0);ctx.lineTo(-b.r,b.r*0.85);ctx.lineTo(-b.r*0.5,0);ctx.lineTo(-b.r,-b.r*0.85);ctx.closePath();ctx.fill();ctx.restore(); }
+      else { ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,TAU);ctx.fill(); } }
     // player bullets
     ctx.shadowColor="#36e6ff";ctx.strokeStyle="#aef3ff";ctx.lineWidth=3;ctx.lineCap="round";
     for(const b of bullets){ctx.beginPath();ctx.moveTo(b.x-b.vx*0.016,b.y-b.vy*0.016);ctx.lineTo(b.x,b.y);ctx.stroke();}
